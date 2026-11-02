@@ -8,6 +8,10 @@ Play fetch with Spot the black labrador, in one HTML file. The interface is in D
 
 For the larger version, see [spot-fetch](https://github.com/Gitguy268/spot-fetch).
 
+<!-- live-links -->
+**Live:** [gitguy268.github.io/spot-apporteren](https://gitguy268.github.io/spot-apporteren/) · [spot-apporteren.vercel.app](https://spot-apporteren.vercel.app)
+<!-- /live-links -->
+
 <!-- run-steps:start -->
 ## Run it locally, step by step
 
