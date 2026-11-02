@@ -1,0 +1,944 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Spot apporteert</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Pixelify+Sans:wght@400;600&family=Press+Start+2P&display=swap">
+<style>
+/* Layout: één kolom. Speelveld bovenaan, daaronder statusregel, dagdoelen, meters en knoppen. */
+:root{
+  color-scheme:dark;
+  --nacht:#14222a; --diep:#0c161b; --paneel:#1e3540; --rand:#3a5c6a;
+  --inkt:#f2ead0; --dof:#a9bbb6; --halsband:#e0483c; --bal:#c4e538;
+  --kop:"Press Start 2P",ui-monospace,Menlo,monospace;
+  --tekst:"Pixelify Sans",ui-monospace,Menlo,monospace;
+}
+[hidden]{display:none!important}
+body{margin:0;background:var(--nacht);color:var(--inkt);font:400 16px/1.35 var(--tekst)}
+.spel{max-width:968px;margin:0 auto;padding-inline:16px;padding-block:12px;display:flex;flex-direction:column;gap:10px}
+.kop{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:baseline;gap:6px 16px}
+h1{margin:0;font:400 14px/1.4 var(--kop);color:var(--bal)}
+.score{margin:0;font-variant-numeric:tabular-nums;color:var(--dof)}
+.score b,.score span{color:var(--inkt)}
+.veld{display:flex;justify-content:center}
+canvas{display:block;border:4px solid var(--rand);background:var(--diep);image-rendering:pixelated;touch-action:none;cursor:crosshair}
+.status{margin:0;min-height:2.7em;text-align:center}
+.doelen{border:2px solid var(--rand);background:var(--paneel)}
+.doelen summary{padding:10px 12px;cursor:pointer;font-weight:600}
+.doelen summary:focus-visible{outline:2px solid var(--bal);outline-offset:2px}
+.doelen ul{margin:0;padding:0 12px 4px 30px}
+.doelen li.klaar{color:var(--bal)}
+.doelen p{margin:0;padding:4px 12px 10px;color:var(--dof);font-size:14px}
+.meters{display:grid;grid-template-columns:repeat(4,1fr);gap:8px 12px}
+.meter{display:flex;flex-direction:column;gap:3px;min-width:0;font-size:14px;color:var(--dof)}
+.balk{height:14px;padding:2px;border:2px solid var(--rand);background:var(--diep)}
+.balk i{display:block;height:100%;background:var(--bal);-webkit-mask:repeating-linear-gradient(90deg,#000 0 6px,transparent 6px 8px);mask:repeating-linear-gradient(90deg,#000 0 6px,transparent 6px 8px)}
+.balk.alarm i{background:var(--halsband)}
+.knoppen{display:grid;grid-template-columns:repeat(auto-fit,minmax(84px,1fr));gap:8px}
+button{min-height:44px;padding:4px 6px;font:600 15px/1.2 var(--tekst);color:var(--inkt);background:var(--paneel);border:2px solid var(--rand);box-shadow:0 3px 0 var(--diep);cursor:pointer}
+button:active{transform:translateY(2px);box-shadow:0 1px 0 var(--diep)}
+button:focus-visible{outline:2px solid var(--bal);outline-offset:2px}
+button[aria-pressed="true"]{border-color:var(--bal);color:var(--bal)}
+button:disabled{opacity:.45;cursor:default}
+button i{display:block;height:3px;margin-top:4px;background:var(--bal);width:0}
+kbd{font:400 12px var(--tekst);color:var(--dof)}
+.hint{margin:0;font-size:14px;color:var(--dof);text-align:center}
+@media (hover:none){kbd,.toetsen{display:none}}
+@media (max-width:520px){
+  .meters{grid-template-columns:repeat(2,1fr)}h1{font-size:12px}
+  .knoppen{grid-template-columns:repeat(5,1fr);gap:6px}#fotobalk{grid-template-columns:repeat(3,1fr)}
+  button{font-size:14px;padding:4px 2px;overflow-wrap:anywhere}
+}
+</style>
+
+<main class="spel">
+  <header class="kop">
+    <h1>Spot apporteert</h1>
+    <p class="score"><span id="rang">Pup</span> · Reeks <b id="reeks">×1,0</b> · Score <b id="score">0</b> · Record <b id="record">0</b></p>
+  </header>
+  <div class="veld" id="veld"><canvas id="cv" width="320" height="180" role="img" aria-label="Park met Spot, een zwarte labrador met rode halsband"></canvas></div>
+  <p class="status" id="status" role="status">Sleep op het veld naar achteren en laat los om de bal te gooien.</p>
+  <details class="doelen">
+    <summary id="doelkop">Dagdoelen 0/3</summary>
+    <ul id="doellijst"></ul>
+    <p id="leven"></p>
+  </details>
+  <div class="meters">
+    <div class="meter"><span id="l-energie">Energie</span><div class="balk" id="m-energie" role="meter" aria-labelledby="l-energie" aria-valuemin="0" aria-valuemax="100"><i></i></div></div>
+    <div class="meter"><span id="l-honger">Honger</span><div class="balk" id="m-honger" role="meter" aria-labelledby="l-honger" aria-valuemin="0" aria-valuemax="100"><i></i></div></div>
+    <div class="meter"><span id="l-dorst">Dorst</span><div class="balk" id="m-dorst" role="meter" aria-labelledby="l-dorst" aria-valuemin="0" aria-valuemax="100"><i></i></div></div>
+    <div class="meter"><span id="l-vertrouwen">Vertrouwen</span><div class="balk" id="m-vertrouwen" role="meter" aria-labelledby="l-vertrouwen" aria-valuemin="0" aria-valuemax="100"><i></i></div></div>
+  </div>
+  <div class="knoppen" id="knoppen">
+    <button id="k-zit" data-a="zit">Zit <kbd>1</kbd><i></i></button>
+    <button id="k-blijf" data-a="blijf">Blijf <kbd>2</kbd><i></i></button>
+    <button id="k-bring" data-a="bring">Bring <kbd>3</kbd><i></i></button>
+    <button id="k-aus" data-a="aus">Aus <kbd>4</kbd><i></i></button>
+    <button id="k-beloon" data-a="beloon">Beloon <kbd>B</kbd></button>
+    <button id="k-voer" data-a="voer">Voer <kbd>V</kbd></button>
+    <button id="k-water" data-a="water">Water <kbd>W</kbd></button>
+    <button id="k-spin" data-a="spin">Spin: geen</button>
+    <button id="k-foto" data-a="foto">Foto <kbd>F</kbd></button>
+    <button id="k-geluid" data-a="geluid">Geluid: aan</button>
+  </div>
+  <div class="knoppen" id="fotobalk" hidden>
+    <button id="f-geen" data-f="geen" aria-pressed="true">Geen filter</button>
+    <button id="f-scan" data-f="scan" aria-pressed="false">Scanlines</button>
+    <button id="f-gameboy" data-f="gameboy" aria-pressed="false">Game Boy</button>
+    <button id="f-sepia" data-f="sepia" aria-pressed="false">Sepia</button>
+    <button id="f-opslaan">Opslaan als PNG</button>
+    <button id="f-terug">Terug naar het spel</button>
+  </div>
+  <p class="hint">Het streepje onder een commando laat zien hoe goed Spot het kent. Beloon hem direct na een goed commando. De vlag en de streepjes in de lucht tonen de wind.<span class="toetsen"> Toetsen: pijltjes richten, spatie gooit, Q en E kiezen de spin, M zet het geluid uit.</span></p>
+</main>
+
+<script>
+(() => {
+'use strict';
+const $ = id => document.getElementById(id);
+const klem = (v, a = 0, b = 100) => Math.min(b, Math.max(a, v));
+const TEST = /\btest\b/.test(location.search + location.hash);
+
+// ---------- wereld ----------
+const VH = 180, GY = 150, WERELD = 640, G = 400, R = 2.5, DT = 1 / 60, DAG = 180;
+const BAAS = 20, HAND = {x: BAAS + 13, y: GY - 32}, THUIS = 58, DOEL_R = 12;
+const BAK = {honger: 84, dorst: 100};
+// e = elasticiteit, mu = deel van de snelheid langs de grond dat een stuit kost, rol = rolweerstand in px/s²
+const SURFACES = {
+  beton:  {e: .72, mu: .10, rol: 60},
+  gras:   {e: .48, mu: .25, rol: 170},
+  zand:   {e: .15, mu: .60, rol: 520},
+  sneeuw: {e: .08, mu: .50, rol: 420},
+  water:  {e: 0,   mu: .70, rol: 0},
+};
+const ZONES = [[0, 'beton'], [96, 'gras'], [240, 'zand'], [304, 'gras'], [384, 'water'], [480, 'gras'], [544, 'sneeuw']];
+const ondergrond = x => { let n = 'beton'; for (const [van, t] of ZONES) if (x >= van) n = t; return n; };
+// hoogte boven de basislijn: een heuvel in het gras voor de vijver en een sneeuwhelling aan de rechterrand
+const PROFIEL = [[0, 0], [304, 0], [344, 12], [384, 0], [560, 0], [640, 18]];
+function hoogte(x) {
+  for (let i = 1; i < PROFIEL.length; i++) if (x <= PROFIEL[i][0]) {
+    const [x0, h0] = PROFIEL[i - 1], [x1, h1] = PROFIEL[i];
+    return GY - (h0 + (h1 - h0) * (x - x0) / (x1 - x0));
+  }
+  return GY - PROFIEL[PROFIEL.length - 1][1];
+}
+const helling = x => (hoogte(x + 1) - hoogte(x - 1)) / 2;                  // dy/dx, y loopt naar beneden
+const trek = x => { const h = helling(x); return G * h / (1 + h * h); };   // versnelling heuvelaf langs x
+const BANK = {x: 150, y: GY - 10, w: 30, h: 10}, STAM = {x: 508, y: GY - 46, w: 8, h: 46}, KRUIN = {x: 490, y: GY - 90, w: 44, h: 44};
+const OBST = [BANK, STAM];
+
+// ---------- balfysica ----------
+const nieuweBal = o => Object.assign({x: HAND.x, y: HAND.y, vx: 0, vy: 0, spin: 0, hoek: 0, t: 0, st: 'hand', geland: false, landX: 0, klap: 0, ritsel: false, blad: false}, o);
+const worp = (a, p) => { const v = 140 + 280 * p; return {x: HAND.x, y: HAND.y, vx: v * Math.cos(a), vy: -v * Math.sin(a), st: 'lucht', geland: false, hoek: 0}; };
+
+// spin: +1 is topspin (lager en verder), -1 is backspin (hoger en korter); nat: 0..1 maakt alles gladder; wind: -1..1
+// Zet b.klap (inslagsnelheid) en b.ritsel (door de boomkruin) voor geluid; speelt zelf niets af.
+function stapBal(b, dt, nat = 0, wind = 0) {
+  b.klap = 0; b.ritsel = false;
+  if (b.st === 'drijf') {
+    b.t += dt; b.vx *= 1 - Math.min(1, 3 * dt);
+    b.x = klem(b.x + b.vx * dt, 384 + R, 480 - R);
+    b.y = GY - 1 + Math.sin(b.t * 4) * .8;
+    return;
+  }
+  if (b.st === 'rust' && Math.abs(trek(b.x)) > SURFACES[ondergrond(b.x)].rol * (1 - .5 * nat)) b.st = 'rol';   // nat gras: de bal rolt alsnog de heuvel af
+  if (b.st !== 'lucht' && b.st !== 'rol') return;
+  const px = b.x, py = b.y;
+  if (b.st === 'lucht') { b.vy += G * dt; b.vx += wind * 70 * dt; }
+  b.x += b.vx * dt; b.y += b.vy * dt;
+  b.hoek += (b.vx * .05 + b.spin * 12) * dt;
+  if (b.x < R) { b.x = R; b.vx = Math.abs(b.vx) * .5; }
+  if (b.x > WERELD - R) { b.x = WERELD - R; b.vx = -Math.abs(b.vx) * .5; }
+  for (const o of OBST) {
+    if (b.x <= o.x - R || b.x >= o.x + o.w + R || b.y <= o.y - R) continue;
+    if (py <= o.y - R) {                       // van boven: stuit door en rolt er altijd weer af
+      b.y = o.y - R; b.vy = -Math.max(Math.abs(b.vy) * .5, 60); b.st = 'lucht';
+      if (Math.abs(b.vx) < 20) b.vx = b.vx < 0 ? -30 : 30;
+    } else if (px < o.x + o.w / 2) { b.x = o.x - R; b.vx = -Math.abs(b.vx) * .5; }
+    else { b.x = o.x + o.w + R; b.vx = Math.abs(b.vx) * .5; }
+  }
+  const inKruin = b.x > KRUIN.x && b.x < KRUIN.x + KRUIN.w && b.y > KRUIN.y && b.y < KRUIN.y + KRUIN.h;
+  if (inKruin && !b.blad) { b.vx *= .35; b.vy *= .35; b.ritsel = true; }   // bladeren remmen de bal af
+  b.blad = inKruin;
+  const naam = ondergrond(b.x), s = SURFACES[naam], glad = 1 - .5 * nat, gy = hoogte(b.x) - R;
+  if (b.st === 'lucht') {
+    if (b.y < gy) return;
+    b.y = gy;
+    const h = helling(b.x), L = Math.hypot(h, 1);
+    let vn = (b.vx * h - b.vy) / L, vt = (b.vx + b.vy * h) / L;            // loodrecht op en langs de grond
+    if (vn >= 0) return;
+    if (!b.geland) { b.geland = true; b.landX = b.x; }
+    if (naam === 'water') { b.st = 'drijf'; b.vx *= .3; b.vy = 0; b.t = 0; return; }
+    b.klap = -vn;
+    vn = -vn * s.e * (1 - .35 * b.spin);
+    vt = vt * (1 - s.mu * glad) + (Math.sign(vt) || 1) * b.spin * 40;
+    b.spin *= .5;
+    if (vn < 30) { vn = 0; b.st = 'rol'; }
+    b.vx = (vt + vn * h) / L; b.vy = (vt * h - vn) / L;
+  } else {
+    if (naam === 'water') { b.st = 'drijf'; b.vx *= .3; b.t = 0; return; }
+    const tr = trek(b.x), rem = s.rol * glad;
+    if (Math.abs(b.vx) <= (rem + Math.abs(tr)) * dt + 2 && Math.abs(tr) <= rem) { b.vx = 0; b.st = 'rust'; }
+    else b.vx += (tr - Math.sign(b.vx || tr) * rem) * dt;
+    b.y = gy; b.vy = 0;
+  }
+}
+
+// ---------- regels ----------
+const punten = d => Math.max(0, Math.round(100 - d / 2)) + (d <= DOEL_R ? 100 : 0);
+const metReeks = (p, reeks) => Math.round(p * Math.min(2, 1 + .1 * reeks));
+const kans = (kunde, vertrouwen, energie, afgeleid) =>
+  klem(.25 + .6 * kunde + .15 * vertrouwen / 100 - (energie < 20 ? .2 : 0) - (afgeleid ? .3 : 0), .05, .98);
+const rang = gem => ['Pup', 'Leerling', 'Apporteur', 'Kampioen'][gem < .4 ? 0 : gem < .6 ? 1 : gem < .8 ? 2 : 3];
+const STATS0 = {energie: 80, honger: 25, dorst: 25, vertrouwen: 50};
+const KUNDE0 = {zit: .5, blijf: .2, bring: .4, aus: .3};
+const DOELEN = [
+  {id: 'raak', n: 3, t: 'Raak het doel 3 keer'},
+  {id: 'terug', n: 6, t: 'Laat Spot 6 ballen terugbrengen'},
+  {id: 'netjes', n: 2, t: 'Gooi 2 keer terwijl Spot blijft zitten'},
+  {id: 'zwem', n: 2, t: 'Laat Spot 2 ballen uit het water halen'},
+  {id: 'weersta', n: 1, t: 'Laat Spot een afleiding weerstaan'},
+  {id: 'beloon', n: 8, t: 'Beloon Spot 8 keer op het goede moment'},
+  {id: 'reeks', n: 4, t: 'Haal een reeks van 4'},
+];
+const dagNr = (d = new Date()) => d.getFullYear() * 10000 + (d.getMonth() + 1) * 100 + d.getDate();   // lokale datum
+// index uit het aantal dagen, niet uit dagNr zelf: dat springt bij een maandwissel met een veelvoud van 7
+const dagDoelen = nr => [0, 2, 4].map(k => DOELEN[(Date.UTC(nr / 10000 | 0, (nr / 100 | 0) % 100 - 1, nr % 100) / 864e5 + k) % DOELEN.length]);
+// neemt alleen bekende, geldige getallen over uit opgeslagen data
+function schoon(doel, bron, max) {
+  for (const k in doel) { const v = bron == null || bron[k] == null || bron[k] === '' ? NaN : Number(bron[k]); if (Number.isFinite(v)) doel[k] = klem(v, 0, max); }
+}
+function afwezig(s, uren) {
+  uren = klem(+uren || 0, 0, 8);
+  s.honger += 9 * uren; s.dorst += 11 * uren; s.energie += 40 * uren;
+  if (s.honger > 80 || s.dorst > 80) s.vertrouwen -= 3 * uren;
+  for (const k in s) s[k] = klem(s[k]);
+}
+
+// Later uit te breiden met meer honden of rassen: elk een eigen palet en snelheid.
+const BREEDS = {
+  spot: {naam: 'Spot', ras: 'zwarte labrador', snelheid: 120, pal: {k: '#16161d', d: '#2c2c3a', g: '#5a5a70', r: '#e0483c', e: '#ffd76a'}},
+};
+const PAL_ANDER = {k: '#8a5a2b', d: '#6b4320', g: '#b98550', r: '#3a6bd8', e: '#1a1008'};
+
+function zelftest() {
+  let fout = 0;
+  const ok = (v, m) => { console.assert(v, m); if (!v) fout++; };
+  const stuit = (x, spin = 0, vx = 60) => { const b = nieuweBal({x, y: hoogte(x) - R - 1, vx, vy: 200, spin, st: 'lucht'}); stapBal(b, DT); return b; };
+  const h = x => -stuit(x).vy;
+  ok(h(48) > h(120) && h(120) > h(270) && h(270) > h(550), 'stuithoogte: beton > gras > zand > sneeuw');
+  ok(Math.abs(stuit(48).vy + (200 + G * DT) * .72) < 1e-9 && Math.abs(stuit(48).vx - 54) < 1e-9, 'vlakke grond stuitert zoals voorheen');
+  ok(stuit(320, 0, 0).vx < 0 && stuit(364, 0, 0).vx > 0, 'op een helling stuitert de bal heuvelaf');
+  const w = stuit(430); ok(w.st === 'drijf', 'bal drijft op water');
+  for (let i = 0; i < 300; i++) stapBal(w, DT);
+  ok(w.st === 'drijf' && Math.abs(w.y - GY) < 3 && ondergrond(w.x) === 'water', 'bal blijft drijven');
+  ok(-stuit(48, -1).vy > -stuit(48, 1).vy, 'backspin stuitert hoger dan topspin');
+  const rol = nat => { const b = nieuweBal({x: 100, y: GY - R, vx: 80, st: 'rol'}); for (let i = 0; i < 600; i++) stapBal(b, DT, nat); return b.x; };
+  ok(rol(1) > rol(0), 'natte bal rolt verder');
+  const heuvel = nat => { const b = nieuweBal({x: 320, y: hoogte(320) - R, st: 'rust'}); for (let i = 0; i < 600; i++) stapBal(b, DT, nat); return b; };
+  ok(heuvel(0).x === 320 && heuvel(1).x < 310 && heuvel(1).st === 'rust', 'droge bal blijft op de heuvel liggen, natte rolt eraf');
+  const t = nieuweBal({x: 470, y: GY - 20, vx: 200, st: 'lucht'}); let terug = false;
+  for (let i = 0; i < 40; i++) { stapBal(t, DT); terug = terug || t.vx < 0; ok(t.x <= STAM.x - R + .01, 'bal gaat niet door de stam'); }
+  ok(terug, 'bal kaatst terug van de stam');
+  const land = wind => { const b = nieuweBal(worp(.8, .5)); for (let i = 0; i < 400 && !b.geland; i++) stapBal(b, DT, 0, wind); return b.landX; };
+  ok(land(1) > land(0) && land(0) > land(-1), 'wind verschuift de landing');
+  const k = nieuweBal({x: 480, y: GY - 70, vx: 150, st: 'lucht'}); let ritsel = false;
+  for (let i = 0; i < 10; i++) { stapBal(k, DT); ritsel = ritsel || k.ritsel; }
+  ok(ritsel && Math.abs(k.vx) < 60, 'de boomkruin remt de bal af');
+  ok(kans(.8, 50, 80, false) > kans(.2, 50, 80, false), 'slaagkans stijgt met beheersing');
+  ok(kans(.5, 50, 80, true) < kans(.5, 50, 80, false), 'afleiding verlaagt de slaagkans');
+  ok(kans(9, 999, 80, false) <= 1 && kans(-9, -999, 0, true) >= 0, 'slaagkans blijft tussen 0 en 1');
+  const s = {energie: 10, honger: 95, dorst: 95, vertrouwen: 1}; afwezig(s, 1e9); afwezig(s, NaN);
+  ok(Object.values(s).every(v => v >= 0 && v <= 100), 'stats blijven tussen 0 en 100');
+  const s2 = {...STATS0}; schoon(s2, {energie: 'x', honger: 1e9, dorst: -5, vertrouwen: null}, 100);
+  ok(s2.energie === 80 && s2.honger === 100 && s2.dorst === 0 && s2.vertrouwen === 50, 'kapotte opslag wordt genegeerd');
+  const l = {totaal: 3, besteReeks: 2}; schoon(l, {totaal: {}, besteReeks: -1}, 1e9); schoon(l, 'onzin', 1e9);
+  ok(l.totaal === 3 && l.besteReeks === 0, 'kapotte tellers worden genegeerd');
+  ok(punten(0) === 200 && punten(0) > punten(13) && punten(13) > punten(150) && punten(500) === 0, 'punten dalen met afstand, bonus op het doel');
+  ok(metReeks(100, 0) === 100 && metReeks(100, 3) === 130 && metReeks(100, 50) === 200, 'reeks vermenigvuldigt tot hooguit x2');
+  const d1 = dagDoelen(20261009).map(d => d.id), d2 = dagDoelen(20261009).map(d => d.id);
+  ok(d1.join() === d2.join() && new Set(d1).size === 3 && dagDoelen(20261010)[0].id !== d1[0] && dagDoelen(20261031)[0].id !== dagDoelen(20261101)[0].id, 'dagdoelen: drie verschillende, vast per datum');
+  ok(rang(.35) === 'Pup' && rang(.9) === 'Kampioen', 'rang volgt de beheersing');
+  return fout;
+}
+
+// ---------- geluid ----------
+const inst = {geluid: 1};
+let ac = null;
+function wek() {                    // alleen na een tik, klik of toets mag er geluid komen
+  const AC = window.AudioContext || window.webkitAudioContext;
+  if (!AC) return;
+  ac = ac || new AC();
+  if (ac.state === 'suspended') ac.resume();
+}
+function piep(f, duur = .08, vorm = 'square', glij = 0, vol = .06, wacht = 0) {
+  if (!ac || !inst.geluid) return;
+  const t = ac.currentTime + wacht, o = ac.createOscillator(), g = ac.createGain();
+  o.type = vorm; o.frequency.setValueAtTime(f, t);
+  if (glij) o.frequency.exponentialRampToValueAtTime(Math.max(30, f + glij), t + duur);
+  g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(.001, t + duur);
+  o.connect(g).connect(ac.destination); o.start(t); o.stop(t + duur);
+}
+function ruis(duur, vol) {
+  if (!ac || !inst.geluid) return;
+  const n = ac.sampleRate * duur | 0, buf = ac.createBuffer(1, n, ac.sampleRate), d = buf.getChannelData(0);
+  for (let i = 0; i < n; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / n);
+  const s = ac.createBufferSource(), g = ac.createGain();
+  s.buffer = buf; g.gain.value = vol; s.connect(g).connect(ac.destination); s.start();
+}
+const rij = (noten, duur, vol) => noten.forEach((f, i) => piep(f, duur, 'square', 0, vol, i * duur * .9));
+const KLANK = {
+  werp: () => piep(300, .15, 'square', 500),
+  plons: () => ruis(.3, .09),
+  blad: () => ruis(.12, .04),
+  blaf: () => { piep(190, .07, 'sawtooth', -70, .1); piep(170, .09, 'sawtooth', -70, .1, .13); },
+  bel: () => { piep(1900, .12, 'triangle', 0, .08); piep(1900, .22, 'triangle', 0, .08, .17); },
+  ja: () => rij([520, 780], .07, .06),
+  nee: () => piep(140, .15, 'sawtooth', -40),
+  beloon: () => rij([660, 880, 1320], .07, .06),
+  raak: () => rij([523, 659, 784, 1047], .1, .07),
+  doel: () => rij([784, 988, 1175, 1568, 1175, 1568], .09, .07),
+};
+
+// ---------- sprites ----------
+function sprite(rijen, pal) {
+  const c = document.createElement('canvas'); c.width = rijen[0].length; c.height = rijen.length;
+  const g = c.getContext('2d');
+  rijen.forEach((rij, y) => [...rij].forEach((ch, x) => { if (pal[ch]) { g.fillStyle = pal[ch]; g.fillRect(x, y, 1, 1); } }));
+  return c;
+}
+// Spot kijkt naar rechts. k = vacht, d = verre poot, g = lichtrand en oor, r = halsband, e = oog.
+const KOP = ['..kkkkk.....', '.kkkkkkk....', 'kggkkekkk...', 'kggkkkkkkkk.', 'kggkkkkkkkkk', 'kkgkkkkkkkk.', '.kkkkkkkk...'];
+const STA = ['...ggggggggggggggrrr..', '..kkkkkkkkkkkkkkkrrrk.', '..kkkkkkkkkkkkkkkkrrkk', '..kkkkkkkkkkkkkkkkkkkk',
+             '..kkkkkkkkkkkkkkkkkkkk', '..kkkkkkkkkkkkkkkkkkk.', '..kkkkkkkkkkkkkkkkkk..', '...kkkkkkkkkkkkkkkk...'];
+const ZIT = ['.......rrrrk....', '......krrrrk....', '.....gkkkkkkk...', '....gkkkkkkkk...', '...gkkkkkkkkk...', '..gkkkkkkkkkk...',
+             '.gkkkkkkkkkkk...', '.kkkkkkkkkkkk...', 'kkkkkkkkkkkkk...', 'kkkkkkkkkkkkk...', 'kkkkkkkkk.kkk...', 'kkkkkkkkk.kkk...',
+             'kkkkkkkkk.kkk...', 'kkkkkkkkkkkkk...', 'kkkkkkkkk.kkkk..'];
+const LIG = ['...ggggggggggggrr.........', '..kkkkkkkkkkkkkrrrk.......', '.kkkkkkkkkkkkkkkrrk.......', '.kkkkkkkkkkkkkkkkkk.......',
+             '.kkkkkkkkkkkkkkkkkkkkkkk..', 'kkkkkkkkkkkkkkkkkkkkkkkkk.', 'kkkkkkk..kkkkkkkkkkkkkkkk.'];
+for (const p of [BREEDS.spot.pal, PAL_ANDER]) Object.assign(p, {kop: sprite(KOP, p), sta: sprite(STA, p), zit: sprite(ZIT, p), lig: sprite(LIG, p)});
+const BALPAL = {g: '#c4e538', h: '#f6ffc2', d: '#7fa81c', w: '#ffffff'};
+// vier draaiframes: de naad draait door het midden, de highlight blijft linksboven
+const BAL = [['.ggg.', 'ghggg', 'gwwwg', 'ggggd', '.gdd.'], ['.ggg.', 'gwggg', 'ggwgg', 'gggwd', '.gdd.'],
+             ['.ggg.', 'ghwgg', 'ggwgg', 'ggwgd', '.gdd.'], ['.ggg.', 'ghgwg', 'ggwgg', 'gwggd', '.gdd.']].map(r => sprite(r, BALPAL));
+const EEKHOORN = sprite(['......tt.', '.bb...ttt', 'bebb..ttt', 'bbbbb.tt.', '..bbbbtt.', '..bbbbb..', '...b..b..'], {t: '#e8a15a', b: '#a8642c', e: '#16161d'});
+const DUIF = sprite(['..gg...', '.geg...', 'ogggggw', '.ggggww', '..ggg..', '..p.p..'], {g: '#9aa3b5', e: '#16161d', o: '#e8a15a', w: '#e8ecf8', p: '#e07a8a'});
+const UIT = sprite(['rr', 'rr', 'rr', 'rr', 'rr', '..', 'rr', 'rr'], {r: '#e0483c'});
+const VRAAG = sprite(['.kk.', 'k..k', '...k', '..k.', '.k..', '.k..', '....', '.k..'], {k: '#16161d'});
+const ICOON = {
+  energie: sprite(['..y..', '.yy..', 'yyyy.', '..yy.', '..y..'], {y: '#ffd76a'}),
+  honger: sprite(['.....', 'w...w', 'wwwww', 'w...w', '.....'], {w: '#f2ead0'}),
+  dorst: sprite(['..b..', '.bbb.', 'bbbbb', 'bbbbb', '.bbb.'], {b: '#7cc8ee'}),
+  vertrouwen: sprite(['.r.r.', 'rrrrr', 'rrrrr', '.rrr.', '..r..'], {r: '#e0483c'}),
+};
+// 3x5-pixelfont, rij voor rij
+const FONT = {0: '111101101101111', 1: '010110010010111', 2: '111001111100111', 3: '111001111001111', 4: '101101111001001',
+  5: '111100111001111', 6: '111100111101111', 7: '111001001001001', 8: '111101111101111', 9: '111101111001111',
+  '+': '000010111010000', ',': '000000000010100', m: '000000111111101', x: '000101010101000',
+  R: '110101110101101', A: '010101111101101', K: '101101110101101'};
+function tegel(basis, top, spikkel) {
+  const c = document.createElement('canvas'); c.width = 16; c.height = VH - GY;
+  const g = c.getContext('2d');
+  g.fillStyle = basis; g.fillRect(0, 0, 16, c.height);
+  g.fillStyle = top; g.fillRect(0, 0, 16, 2);
+  g.fillStyle = spikkel; for (let i = 0; i < 14; i++) g.fillRect(i * 7 % 16, 3 + i * 11 % 26, 2, 1);
+  c.basis = basis;
+  return c;
+}
+const TEGELS = {
+  beton: tegel('#8d8d99', '#b4b4c0', '#74747f'), gras: tegel('#3f9b3a', '#62c44a', '#2f7d2f'),
+  modder: tegel('#4b5a2a', '#5f6e30', '#3a3f20'), zand: tegel('#d9b96a', '#eed58c', '#b9964a'),
+  sneeuw: tegel('#dfe9f2', '#ffffff', '#b9c9da'), water: tegel('#2f7fc0', '#7cc8ee', '#2468a3'),
+};
+
+// ---------- toestand ----------
+const cv = $('cv'), ctx = cv.getContext('2d', {willReadFrequently: true});
+let VW = 320, S = 1;
+const stats = {...STATS0}, kunde = {...KUNDE0}, leven = {totaal: 0, besteReeks: 0};
+const dag = {nr: dagNr(), tel: Object.fromEntries(DOELEN.map(d => [d.id, 0]))};
+const ras = BREEDS.spot;
+const spot = {x: THUIS, dir: 1, st: 'vrij', t: 0, fase: 0, kwispel: 0, heeftBal: false, uit: 0, vraag: 0, schud: 0, friemel: 0, nat: false, beweegt: false, ren: false, bak: 'honger'};
+const bal = nieuweBal();
+const richt = {a: .8, p: .55};
+let spin = 0, score = 0, record = 0, reeks = 0, doel = 300, gescoord = true, rondePunten = false, netjes = false, baan = {pts: [], landX: 0};
+let tijd = 0, dagU = .15, regent = false, regen = 0, nat = 0, weerT = 45 + Math.random() * 40;
+let wind = 0, windDoel = 0, windT = 20, windX = 0, stuitT = 0;
+let afl = null, aflT = 14, laatste = null, cmdT = 0, cam = 0, foto = null, downloads = null, sleep = null;
+const waarschuwing = {honger: false, dorst: false};
+const deeltjes = [], popups = [], druppels = Array.from({length: 60}, () => ({x: Math.random() * 340, y: Math.random() * GY}));
+
+const zeg = t => { $('status').textContent = t; };
+const beloonbaar = c => { laatste = {c, t: tijd, beloond: false}; };
+const popup = (x, y, s, c = '#ffffff') => popups.push({x, y, s, c, t: 1.3});
+function nieuwDoel() {
+  do doel = 120 + Math.random() * 480; while (OBST.some(o => doel > o.x - 16 && doel < o.x + o.w + 16));
+}
+function toonDoelen() {
+  const lijst = dagDoelen(dag.nr);
+  $('doellijst').replaceChildren(...lijst.map(d => {
+    const li = document.createElement('li'), n = Math.min(d.n, dag.tel[d.id]);
+    li.textContent = `${d.t} (${n}/${d.n})`; li.className = n >= d.n ? 'klaar' : '';
+    return li;
+  }));
+  $('doelkop').textContent = `Dagdoelen ${lijst.filter(d => dag.tel[d.id] >= d.n).length}/3`;
+  $('leven').textContent = `Totaal teruggebracht: ${leven.totaal} · Beste reeks: ${leven.besteReeks}`;
+}
+// telt een gebeurtenis mee voor de dagdoelen; bij 'reeks' telt de hoogste stand
+function tel(id, n = 1) {
+  if (dag.nr !== dagNr()) { dag.nr = dagNr(); for (const k in dag.tel) dag.tel[k] = 0; }   // na middernacht: nieuwe doelen
+  const d = dagDoelen(dag.nr).find(d => d.id === id), voor = dag.tel[id];
+  dag.tel[id] = id === 'reeks' ? Math.max(voor, n) : voor + n;
+  if (d && voor < d.n && dag.tel[id] >= d.n) {
+    score += 50; stats.vertrouwen += 5; KLANK.doel();
+    popup(spot.x, hoogte(spot.x) - 44, '+50', '#ffd76a');
+    zeg(`Dagdoel gehaald: ${d.t}. +50 punten.`);
+  }
+  toonDoelen();
+}
+
+// ---------- opslag ----------
+const SLEUTEL = 'spot-apporteert-v1';
+function bewaar() { try { localStorage.setItem(SLEUTEL, JSON.stringify({stats, kunde, record, leven, inst, dag, t: Date.now()})); } catch {} }
+function laad() {
+  try {
+    const d = JSON.parse(localStorage.getItem(SLEUTEL));
+    if (!d) return;
+    schoon(stats, d.stats, 100); schoon(kunde, d.kunde, 1); schoon(leven, d.leven, 1e9); schoon(inst, d.inst, 1);
+    if (d.dag && d.dag.nr === dag.nr) schoon(dag.tel, d.dag.tel, 999);
+    record = Math.max(0, Math.floor(+d.record) || 0);
+    afwezig(stats, (Date.now() - d.t) / 36e5);
+  } catch {}
+}
+
+// ---------- Spot ----------
+function laatVallen() {
+  spot.heeftBal = false;
+  const x = klem(spot.x + spot.dir * 17, R, WERELD - R);
+  Object.assign(bal, {x, y: hoogte(x) - 14, vx: 0, vy: 0, spin: 0, st: 'lucht'});
+}
+function loopNaar(tx, dt, ren) {
+  const dx = tx - spot.x;
+  if (Math.abs(dx) < 2) return true;
+  const water = ondergrond(spot.x) === 'water';
+  const v = water ? 40 : ren && stats.energie >= 25 ? ras.snelheid : 45;
+  spot.dir = Math.sign(dx); spot.x += spot.dir * Math.min(v * dt, Math.abs(dx));
+  spot.beweegt = true; spot.ren = v > 60; spot.fase += dt * (spot.ren ? 14 : 8);
+  stats.energie -= (water ? 5 : spot.ren ? 2.5 : .8) * dt;
+  stats.dorst += (spot.ren ? .5 : .15) * dt;
+  if (water) spot.nat = true;
+  return false;
+}
+function stapSpot(dt) {
+  const s = stats, water = ondergrond(spot.x) === 'water';
+  spot.beweegt = false;
+  spot.kwispel += dt * (4 + s.vertrouwen / 12);
+  spot.uit -= dt; spot.vraag -= dt; spot.friemel -= dt;
+  s.honger += .12 * dt; s.dorst += .15 * dt;
+  if (s.honger > 80 || s.dorst > 80) s.vertrouwen -= .15 * dt;   // verwaarlozing
+  for (const k of ['honger', 'dorst']) {
+    if (s[k] > 80 && !waarschuwing[k]) { waarschuwing[k] = true; zeg(k === 'honger' ? 'Spot heeft honger. Geef hem voer.' : 'Spot heeft dorst. Geef hem water.'); }
+    if (s[k] < 70) waarschuwing[k] = false;
+  }
+  if (spot.nat && !water) { spot.nat = false; spot.schud = .9; }
+  if (spot.schud > 0) {
+    spot.schud -= dt; spot.fase += dt * 30;
+    if (Math.random() < .5) deeltjes.push({x: spot.x + Math.random() * 20 - 10, y: hoogte(spot.x) - 13, vx: Math.random() * 120 - 60, vy: -40 - Math.random() * 50, t: .4, c: '#9fd4f0'});
+    return;
+  }
+  if (s.energie <= 0 && !water && ['haal', 'terug', 'afgeleid'].includes(spot.st)) {
+    if (spot.heeftBal) laatVallen();
+    spot.st = 'rust'; zeg('Spot is uitgeput en gaat liggen.');
+  }
+  switch (spot.st) {
+    case 'vrij': s.energie += .5 * dt; break;
+    case 'zit': case 'blijf': s.energie += 2 * dt; break;
+    case 'rust':
+      s.energie += 6 * dt;
+      if (s.energie > 35) { spot.st = 'vrij'; zeg('Spot is weer uitgerust.'); }
+      break;
+    case 'zoek':
+      spot.dir = bal.x < spot.x ? -1 : 1;
+      if ((spot.t += dt) > .5) spot.st = 'haal';
+      break;
+    case 'haal':
+      if (bal.st === 'hand') { spot.st = 'vrij'; break; }
+      loopNaar(bal.x, dt, true);
+      if (spot.friemel <= 0 && Math.abs(bal.x - spot.x) < 9 && bal.y > hoogte(spot.x) - 24) {
+        if (nat > .5 && Math.random() < .25) {
+          Object.assign(bal, {y: hoogte(bal.x) - 8, vx: spot.dir * 70, vy: -90, st: 'lucht'}); spot.friemel = 1;
+          zeg('De natte bal glipt uit Spots bek.');
+        } else {
+          const uitWater = bal.st === 'drijf';
+          if (!bal.geland) { bal.geland = true; bal.landX = bal.x; }
+          bal.st = 'bek'; spot.heeftBal = true; spot.st = 'terug';
+          if (uitWater) tel('zwem');
+        }
+      }
+      break;
+    case 'terug':
+      if (loopNaar(THUIS, dt, true)) {
+        spot.st = 'vrij'; spot.dir = spot.heeftBal ? -1 : 1;
+        if (spot.heeftBal) { beloonbaar('bring'); zeg('Spot is terug met de bal. Zeg "aus".'); }
+      }
+      break;
+    case 'afgeleid':
+      spot.uit = .2;
+      if (!afl || (spot.t -= dt) <= 0) { spot.st = bal.st === 'hand' ? 'terug' : 'vrij'; zeg('Spot is weer bij de les.'); }
+      else loopNaar(afl.x, dt, true);
+      break;
+    case 'bak':
+      if (loopNaar(BAK[spot.bak] - 17, dt, false)) {
+        spot.dir = 1;
+        if ((spot.t += dt) > 1.5) {
+          s[spot.bak] -= 60; s.vertrouwen += 2; spot.st = 'vrij';
+          zeg(spot.bak === 'honger' ? 'Spot heeft gegeten.' : 'Spot heeft gedronken.');
+        }
+      }
+  }
+}
+// Afleidingen: start() geeft de beginpositie, stap() verplaatst en meldt true als hij weg is.
+const AFLEIDINGEN = {
+  eekhoorn: {naam: 'een eekhoorn', start: () => ({x: WERELD + 10}),
+    stap(a, dt) { if (a.x > 516) a.x -= 85 * dt; else a.y += 50 * dt; return a.y > 52; }},
+  hond: {naam: 'een andere hond', start: () => ({x: WERELD + 12}),
+    stap(a, dt) { a.x += (a.terug ? 1 : -1) * 42 * dt; if (a.x < 500) a.terug = true; return a.x > WERELD + 14; }},
+  duif: {naam: 'een duif', start: () => ({x: 110 + Math.random() * 120, y: 70, t: 9}),
+    stap(a, dt) {
+      if (a.t > 0) { a.y = Math.max(0, a.y - 60 * dt); if (!a.y) a.t -= dt; if (Math.abs(spot.x - a.x) < 30) a.t = 0; }
+      else { a.y += 70 * dt; a.x += 50 * dt; }
+      return a.y > 100;
+    }},
+  fiets: {naam: 'een fietser', bereik: 260, start: () => ({x: -20}),
+    stap(a, dt) { a.x += 110 * dt; return a.x > WERELD + 20; }},
+};
+const nieuweAfl = soort => Object.assign({soort, x: 0, y: 0, t: 0, fase: 0, terug: false, gezien: false}, AFLEIDINGEN[soort].start());
+function stapAfl(dt) {
+  if (!afl) {
+    if ((aflT -= dt) < 0) {
+      const k = Object.keys(AFLEIDINGEN);
+      afl = nieuweAfl(k[Math.random() * k.length | 0]); aflT = 16 + Math.random() * 20;
+      if (afl.soort === 'fiets') KLANK.bel();
+    }
+    return;
+  }
+  const a = AFLEIDINGEN[afl.soort];
+  afl.fase += dt * 10;
+  if (a.stap(afl, dt)) { afl = null; return; }
+  if (afl.gezien || Math.abs(afl.x - spot.x) > (a.bereik || 150) || spot.schud > 0 || ['rust', 'bak', 'afgeleid'].includes(spot.st)) return;
+  afl.gezien = true; spot.uit = 1.2;
+  const blijf = spot.st === 'blijf';
+  // blijf werkt het best, zit helpt, een vrije Spot is snel afgeleid
+  const p = blijf ? kans(kunde.blijf, stats.vertrouwen, stats.energie, false) : (spot.st === 'zit' ? .45 : .1) + stats.vertrouwen / 300;
+  if (Math.random() < p) {
+    if (blijf) beloonbaar('blijf');
+    zeg(blijf ? `Spot ziet ${a.naam}, maar blijft zitten. Beloon hem!` : `Spot ziet ${a.naam}, maar let op jou.`);
+    tel('weersta');
+  } else {
+    if (spot.heeftBal) laatVallen();
+    spot.st = 'afgeleid'; spot.t = 3; netjes = false; KLANK.blaf();
+    zeg(`Spot ziet ${a.naam} en is afgeleid! Roep "zit".`);
+  }
+}
+
+// ---------- acties van de speler ----------
+function werp() {
+  if (bal.st !== 'hand' || foto) return;
+  Object.assign(bal, worp(richt.a, richt.p), {spin});
+  gescoord = false; netjes = false; KLANK.werp();
+  const k = c => kans(kunde[c], stats.vertrouwen, stats.energie, false);
+  if (spot.st === 'blijf') {
+    if (Math.random() < k('blijf')) { netjes = true; beloonbaar('blijf'); zeg('Spot blijft netjes zitten. Roep "bring" voor een driedubbele bonus.'); tel('netjes'); }
+    else { spot.st = 'zoek'; spot.t = 0; zeg('Spot kan zich niet inhouden en rent erachteraan.'); }
+  } else if ((spot.st === 'zit' || spot.st === 'vrij') && Math.random() < k('bring')) { spot.st = 'zoek'; spot.t = 0; }
+  else zeg('Spot kijkt de bal na. Roep "bring".');
+}
+function commando(c) {
+  if (tijd < cmdT) return;
+  if (spot.st === 'rust') return zeg('Spot is te moe. Laat hem even liggen.');
+  if (c === 'bring' && bal.st === 'hand') return zeg('Gooi eerst de bal.');
+  if (c === 'bring' && spot.heeftBal && Math.abs(spot.x - THUIS) < 6) return zeg('Spot is er al. Zeg "aus".');
+  if (c === 'bring' && ['zoek', 'haal', 'terug'].includes(spot.st)) return zeg('Spot is al onderweg.');
+  if (c === 'aus' && !spot.heeftBal) return zeg('Spot heeft de bal niet.');
+  if ((c === 'zit' || c === 'blijf') && ondergrond(spot.x) === 'water') return zeg('Spot zwemt en kan nu niet zitten.');
+  cmdT = tijd + .5;
+  if (Math.random() >= kans(kunde[c], stats.vertrouwen, stats.energie, spot.st === 'afgeleid')) {
+    spot.vraag = 1.2; KLANK.nee();
+    return zeg(`Spot negeert "${c}". Probeer het nog eens.`);
+  }
+  beloonbaar(c); KLANK.ja();
+  if (c === 'zit' || c === 'blijf') { spot.st = c; zeg(c === 'zit' ? 'Spot zit en let op. Beloon hem!' : 'Spot blijft. Beloon hem!'); }
+  else if (c === 'bring') { spot.st = spot.heeftBal ? 'terug' : 'zoek'; spot.t = 0; zeg('Spot gaat de bal halen.'); }
+  else if (Math.abs(spot.x - BAAS) < 50) {
+    const bonus = netjes ? 75 : 25;
+    spot.heeftBal = false; bal.st = 'hand'; spot.st = 'vrij'; spot.dir = 1;
+    score += bonus; stats.vertrouwen += 2; leven.totaal++; nieuwDoel();
+    popup(spot.x, hoogte(spot.x) - 30, '+' + bonus, netjes ? '#ffd76a' : '#ffffff');
+    zeg(netjes ? 'Netjes gewacht en afgegeven: +75 punten. Beloon hem!' : 'Spot geeft de bal af: +25 punten. Beloon hem!');
+    netjes = false;
+    if (rondePunten) { reeks++; leven.besteReeks = Math.max(leven.besteReeks, reeks); tel('reeks', reeks); }
+    tel('terug');
+  } else { laatVallen(); spot.st = 'vrij'; zeg('Spot laat de bal los.'); }
+}
+function beloon() {
+  if (!laatste || laatste.beloond || tijd - laatste.t > 4) return zeg('Spot snapt niet waarvoor het snoepje is. Beloon direct na een goed commando.');
+  laatste.beloond = true; KLANK.beloon();
+  kunde[laatste.c] = klem(kunde[laatste.c] + .07, 0, 1);
+  stats.vertrouwen += 3; stats.honger -= 1;
+  zeg(`Braaf! Spot kent "${laatste.c}" nu voor ${Math.round(kunde[laatste.c] * 100)}%.`);
+  tel('beloon');
+}
+function naarBak(stat) {
+  if (!['vrij', 'zit', 'blijf'].includes(spot.st) || spot.heeftBal) return zeg('Dat kan pas als Spot rustig bij je is zonder bal.');
+  if (stats[stat] < 15) return zeg(`Spot heeft geen ${stat}.`);
+  spot.st = 'bak'; spot.bak = stat; spot.t = 0;
+  zeg(stat === 'honger' ? 'Spot loopt naar de voerbak.' : 'Spot loopt naar de waterbak.');
+}
+function zetSpin(v) {
+  spin = v;
+  const naam = ['backspin', 'geen', 'topspin'][v + 1];
+  $('k-spin').textContent = 'Spin: ' + naam;
+  zeg(v ? `Spin: ${naam}. ${v > 0 ? 'De bal stuitert lager en verder.' : 'De bal stuitert hoger en korter.'}` : 'Spin: geen.');
+}
+const toonGeluid = () => { $('k-geluid').textContent = 'Geluid: ' + (inst.geluid ? 'aan' : 'uit'); };
+function zetFoto(f) {
+  foto = f;
+  $('knoppen').hidden = !!f; $('fotobalk').hidden = !f;
+  for (const b of $('fotobalk').querySelectorAll('[data-f]')) b.setAttribute('aria-pressed', b.dataset.f === f);
+  zeg(f ? 'Fotomodus: het spel staat stil. Sleep om het beeld te verschuiven, kies een filter en sla de foto op.' : 'Verder spelen.');
+}
+async function bewaarFoto() {
+  const k = 4, c = document.createElement('canvas'); c.width = VW * k; c.height = VH * k;
+  const g = c.getContext('2d'); g.imageSmoothingEnabled = false; g.drawImage(cv, 0, 0, c.width, c.height);
+  const blob = await new Promise(r => c.toBlob(r, 'image/png'));
+  if (!blob) return zeg('De foto kon niet worden gemaakt.');
+  if (!window.claude) {           // lokaal bestand: gewone download
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'spot-foto.png'; a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+    return zeg('Foto opgeslagen als spot-foto.png.');
+  }
+  try { await downloads.save({filename: 'spot-foto.png', data: blob}); zeg('Foto opgeslagen.'); }
+  catch (e) {
+    if (e && e.code === 'declined') zeg('Opslaan geannuleerd.');
+    else if (e && e.code === 'rate_limited') zeg('Wacht even en probeer het opnieuw.');
+    else { $('f-opslaan').disabled = true; zeg('Opslaan lukt hier niet. Maak een schermafbeelding met je apparaat.'); }
+  }
+}
+const ACTIES = {
+  zit: () => commando('zit'), blijf: () => commando('blijf'), bring: () => commando('bring'), aus: () => commando('aus'),
+  beloon, voer: () => naarBak('honger'), water: () => naarBak('dorst'),
+  spin: () => zetSpin(spin >= 1 ? -1 : spin + 1), 'spin-': () => zetSpin(Math.max(-1, spin - 1)), 'spin+': () => zetSpin(Math.min(1, spin + 1)),
+  foto: () => zetFoto(foto ? null : 'geen'),
+  geluid: () => { inst.geluid = inst.geluid ? 0 : 1; toonGeluid(); KLANK.ja(); bewaar(); },
+};
+const TOETS = {1: 'zit', 2: 'blijf', 3: 'bring', 4: 'aus', b: 'beloon', v: 'voer', w: 'water', f: 'foto', q: 'spin-', e: 'spin+', m: 'geluid'};
+const actie = n => { if (!foto || n === 'foto') ACTIES[n](); };
+
+// ---------- spelstap ----------
+function voorspel() {
+  const b = nieuweBal(worp(richt.a, richt.p)), pts = [];
+  for (let i = 0; i < 300 && !b.geland; i++) { stapBal(b, DT, 0, wind); if (i % 3 === 0) pts.push(b.x, b.y); }
+  return {pts, landX: b.x};
+}
+function weer(dt) {
+  if ((weerT -= dt) < 0) {
+    regent = !regent; weerT = regent ? 20 + Math.random() * 15 : 50 + Math.random() * 60;
+    zeg(regent ? 'Het begint te regenen. De bal wordt glad en het gras modderig.' : 'Het wordt droog.');
+  }
+  regen = klem(regen + (regent ? .5 : -.5) * dt, 0, 1);
+  nat = klem(nat + (regent ? .15 : -.02) * dt, 0, 1);
+  if ((windT -= dt) < 0) { windDoel = Math.random() * 2 - 1; windT = 15 + Math.random() * 15; }
+  wind += (windDoel - wind) * Math.min(1, .5 * dt); windX += wind * 90 * dt;
+  for (const d of druppels) { d.y += 240 * dt; d.x += (wind * 120 - 30) * dt; if (d.y > GY) { d.y = 0; d.x = Math.random() * 340; } }
+}
+function stap(dt) {
+  tijd += dt; dagU = (dagU + dt / DAG) % 1;
+  weer(dt);
+  const was = bal.st;
+  stapBal(bal, dt, nat, wind);
+  if (bal.klap > 40 && tijd - stuitT > .08) { stuitT = tijd; piep(150 + 500 * SURFACES[ondergrond(bal.x)].e, .05, 'triangle', -60, klem(bal.klap / 2500, .02, .1)); }
+  if (bal.ritsel) {
+    KLANK.blad();
+    for (let i = 0; i < 6; i++) deeltjes.push({x: bal.x, y: bal.y, vx: Math.random() * 60 - 30, vy: -20 - Math.random() * 30, t: .7, c: '#4fae4a'});
+  }
+  if (bal.st === 'drijf' && was !== 'drijf') {
+    KLANK.plons();
+    for (let i = 0; i < 7; i++) deeltjes.push({x: bal.x, y: GY - 1, vx: Math.random() * 80 - 40, vy: -50 - Math.random() * 60, t: .5, c: '#bfe6fa'});
+  }
+  if (bal.geland && !gescoord) {
+    gescoord = true;
+    const d = Math.abs(bal.landX - doel), basis = punten(d), p = metReeks(basis, reeks), raak = d <= DOEL_R, m = (d / 16).toFixed(1).replace('.', ',');
+    rondePunten = basis > 0; if (!basis) reeks = 0;
+    score += p;
+    if (p) popup(bal.landX, hoogte(bal.landX) - 10, '+' + p, raak ? '#ffd76a' : '#ffffff');
+    if (raak) { popup(bal.landX, hoogte(bal.landX) - 20, 'RAAK', '#ffd76a'); KLANK.raak(); }
+    zeg(raak ? `Raak! Midden op het doel: +${p} punten.` : p ? `${m} m naast het doel: +${p} punten.` : `${m} m naast het doel. Geen punten, de reeks is voorbij.`);
+    if (raak) tel('raak');
+  }
+  stapAfl(dt); stapSpot(dt);
+  for (const k in stats) stats[k] = klem(stats[k]);
+  record = Math.max(record, score);
+  for (let i = deeltjes.length; i--;) { const d = deeltjes[i]; d.vy += G * .6 * dt; d.x += d.vx * dt; d.y += d.vy * dt; if ((d.t -= dt) < 0) deeltjes.splice(i, 1); }
+  for (let i = popups.length; i--;) { popups[i].y -= 14 * dt; if ((popups[i].t -= dt) < 0) popups.splice(i, 1); }
+  if (bal.st === 'hand') baan = voorspel();
+  const c = bal.st === 'hand' ? baan.landX - VW + 40 : bal.st === 'lucht' || bal.st === 'rol' ? bal.x - VW / 2 : spot.x - VW / 2;
+  cam += (klem(c, 0, WERELD - VW) - cam) * Math.min(1, 4 * dt);
+}
+
+// ---------- tekenen ----------
+const INKT = '#16161d';
+const LUCHT = [[0, [244, 165, 106]], [.08, [110, 195, 240]], [.45, [110, 195, 240]], [.55, [240, 138, 93]], [.66, [27, 29, 69]], [.92, [27, 29, 69]], [1, [244, 165, 106]]];
+function luchtKleur(u) {
+  let i = 1; while (LUCHT[i][0] < u) i++;
+  const [u0, a] = LUCHT[i - 1], [u1, b] = LUCHT[i], f = (u - u0) / (u1 - u0);
+  return 'rgb(' + a.map((v, k) => Math.round((v + (b[k] - v) * f) * (1 - .5 * regen) + [120, 130, 145][k] * .5 * regen)) + ')';
+}
+const r = (x, y, w, h, c) => { ctx.fillStyle = c; ctx.fillRect(x, y, w, h); };
+// tekst in het pixelfont, gecentreerd op x, met donkere rand zodat hij op elke achtergrond leesbaar is
+function tekst(s, x, y, kleur) {
+  s = String(s); x = Math.round(x - (s.length * 4 - 1) / 2); y = Math.round(y);
+  for (const [ox, oy, c] of [[-1, 0, INKT], [1, 0, INKT], [0, -1, INKT], [0, 1, INKT], [0, 0, kleur]])
+    [...s].forEach((ch, i) => { const g = FONT[ch]; if (g) for (let p = 0; p < 15; p++) if (g[p] === '1') r(x + ox + i * 4 + p % 3, y + oy + (p / 3 | 0), 1, 1, c); });
+}
+const sprong = x => { const t = (x - BANK.x + 8) / (BANK.w + 16); return t > 0 && t < 1 ? 4 * t * (1 - t) * 15 : 0; };   // boogje over de bank
+// poses: zit, lig, sta, loop, ren, schud. Getekend naar rechts met de voeten op (x, y); dir spiegelt.
+function tekenHond(x, y, dir, pose, fase, pal, o = {}) {
+  ctx.save(); ctx.translate(Math.round(x), Math.round(y)); ctx.scale(dir, 1);
+  const d = (x, y, w, h, c = pal.k) => r(x, y, w, h, c);
+  const kop = (kx, ky) => { ctx.drawImage(pal.kop, kx, ky); if (o.bal) ctx.drawImage(BAL[0], kx + 9, ky + 2); };
+  const w = Math.sin(o.kwispel || 0) > 0 ? 1 : 0;
+  if (pose === 'zit') {
+    d(-11, -2 - w, 5, 2); d(-14, -3 - 2 * w, 4, 2);
+    ctx.drawImage(pal.zit, -7, -15); kop(-2, -22);
+  } else if (pose === 'lig') {
+    d(-16, -3 - w, 5, 2);
+    ctx.drawImage(pal.lig, -12, -7); kop(1, -13);
+  } else {
+    const zw = pose === 'ren' ? 4 : pose === 'loop' ? 2 : 0;
+    const bob = pose === 'ren' && Math.sin(fase * 2) > 0 ? 1 : 0;
+    const sx = pose === 'schud' ? Math.round(Math.sin(fase)) : 0;
+    for (const [px, f, c] of [[-9, 0, pal.d], [5, 3.14, pal.d], [-7, 3.14, pal.k], [7, 0, pal.k]]) {   // verre poten eerst en donkerder
+      const s = Math.sin(fase + f), lx = px + Math.round(s * zw), til = zw && s > .3 ? 1 : 0;
+      d(lx, -9, 3, 9 - til, c); d(lx, -1 - til, 4, 1, c);
+    }
+    d(-13 + sx, -15 - bob - w, 4, 2); d(-16 + sx, -16 - bob - 2 * w, 4, 2); d(-18 + sx, -17 - bob - 3 * w, 3, 1);   // staart
+    ctx.drawImage(pal.sta, -11 + sx, -16 - bob);
+    kop(4 - sx, -23 - bob + (o.buk ? 9 : 0));
+  }
+  ctx.restore();
+}
+function ballon(x, y, teken) {
+  r(x - 4, y - 1, 8, 12, INKT); r(x - 3, y, 6, 10, '#ffffff');
+  ctx.drawImage(teken, x - (teken.width >> 1), y + 1);
+}
+const PALETTEN = {
+  gameboy: [[15, 56, 15], [48, 98, 48], [139, 172, 15], [155, 188, 15]],
+  sepia: [[44, 28, 17], [112, 78, 46], [186, 148, 98], [240, 222, 180]],
+};
+function tekenSprites() {           // testbeeld: alle poses van Spot en de andere dog-sprites
+  r(0, 0, VW, VH, '#62c44a');
+  const poses = [['zit', 0], ['sta', 0], ['loop', 0], ['loop', 1.57], ['loop', 3.14], ['ren', 0], ['ren', 1.57], ['ren', 3.14], ['lig', 0], ['schud', 1.57]];
+  poses.forEach(([p, f], i) => {
+    const x = 22 + i % 5 * 40, y = 40 + (i / 5 | 0) * 40;
+    tekenHond(x, y, 1, p, f, ras.pal, {kwispel: f, bal: i === 4 || i === 7});
+    tekenHond(x, y + 80, i % 2 ? -1 : 1, p, f, i < 5 ? PAL_ANDER : ras.pal, {kwispel: f + 3, buk: i === 1});
+  });
+  ctx.drawImage(EEKHOORN, 230, 20); ctx.drawImage(DUIF, 250, 20); BAL.forEach((b, i) => ctx.drawImage(b, 230 + i * 8, 40));
+  tekst('+181 RAAK 12,5m x2', 260, 60, '#ffffff');
+}
+function teken() {
+  if (TEST && location.hash.includes('sprites')) return tekenSprites();
+  const c = Math.round(cam), u = dagU;
+  const donker = u < .52 ? 0 : u < .66 ? (u - .52) / .14 : u < .92 ? 1 : (1 - u) / .08;
+  r(0, 0, VW, VH, luchtKleur(u));
+  if (donker > .3) { ctx.globalAlpha = donker; for (let i = 0; i < 24; i++) r(i * 53 % VW, i * 29 % 90, 1, 1, '#ffffff'); ctx.globalAlpha = 1; }
+  const overdag = u < .6, f = overdag ? u / .6 : (u - .6) / .4, hx = Math.round(VW * f) - 4, hy = Math.round(78 - Math.sin(f * Math.PI) * 60);
+  r(hx + 1, hy, 6, 8, overdag ? '#ffe27a' : '#e8ecf8'); r(hx, hy + 1, 8, 6, overdag ? '#ffe27a' : '#e8ecf8');
+  if (Math.abs(wind) > .15) for (let i = 0; i < 5; i++) r(((i * 67 + windX) % VW + VW) % VW | 0, 14 + i * 17 % 70, 3 + Math.abs(wind) * 6 | 0, 1, 'rgba(255,255,255,.55)');   // windstreepjes
+  if (afl && afl.soort === 'fiets') {                                         // fietser achter de haag
+    const x = Math.round(afl.x - c);
+    r(x - 9, GY - 15, 18, 1, '#33333f'); r(x - 5, GY - 24, 7, 10, '#3a6bd8'); r(x, GY - 22, 7, 2, '#3a6bd8'); r(x + 6, GY - 22, 2, 5, '#33333f');
+    r(x - 2, GY - 29, 5, 5, '#f1c9a5'); r(x - 3, GY - 31, 6, 3, '#e0483c');
+  }
+  r(0, GY - 9, VW, 9, '#35803a');                                            // haag
+  for (let i = 0; i < 12; i++) {                                              // bomen op de achtergrond, schuiven trager mee
+    const x = i * 64 + 20 - Math.round(c * .4);
+    r(x + 9, GY - 14, 4, 14, '#5b4030'); r(x, GY - 38, 22, 26, '#2f7a3a'); r(x + 3, GY - 44, 16, 6, '#2f7a3a'); r(x + 3, GY - 36, 6, 3, '#43984a');
+  }
+  for (let x = 0; x < VW; x++) {                                              // grond per kolom, zodat hellingen glad lopen
+    const wx = x + c, t = ondergrond(wx), y = Math.round(hoogte(wx)), tg = TEGELS[t];
+    ctx.drawImage(tg, wx & 15, 0, 1, tg.height, x, y, 1, tg.height);
+    if (y < GY) r(x, y + tg.height, 1, GY - y, tg.basis);
+    if (t === 'gras' && nat > 0) { ctx.globalAlpha = nat; ctx.drawImage(TEGELS.modder, wx & 15, 0, 1, tg.height, x, y, 1, VH - y); ctx.globalAlpha = 1; }
+  }
+  for (let tx = 384; tx < 480; tx += 16) r(tx - c + (tx / 16 * 5 + (tijd * 6 | 0)) % 13, GY + 5 + tx / 16 % 3 * 7, 3, 1, '#bfe6fa');
+  r(BAK.honger - 4 - c, GY - 4, 9, 4, '#c96a3a'); r(BAK.honger - 3 - c, GY - 5, 7, 1, '#7a4a22');
+  r(BAK.dorst - 4 - c, GY - 4, 9, 4, '#8c98a8'); r(BAK.dorst - 3 - c, GY - 4, 7, 1, '#7cc8ee');
+  r(BANK.x - c, BANK.y, BANK.w, BANK.h, '#8a5a2b'); r(BANK.x - c, BANK.y, BANK.w, 2, '#b98550');
+  for (let i = 5; i < BANK.w; i += 6) r(BANK.x + i - c, BANK.y + 2, 1, BANK.h - 2, '#6b4320');
+  r(STAM.x - c, STAM.y, STAM.w, STAM.h, '#5b4030'); r(STAM.x + 1 - c, STAM.y, 2, STAM.h, '#7a5a44');
+  r(KRUIN.x - c, KRUIN.y + 8, KRUIN.w, KRUIN.h - 8, '#2c8a3c'); r(KRUIN.x + 6 - c, KRUIN.y, KRUIN.w - 12, 8, '#2c8a3c'); r(KRUIN.x + 6 - c, KRUIN.y + 10, 12, 5, '#4fae4a');
+  r(0, 0, VW, VH, `rgba(12,14,48,${donker * .5})`);                           // nacht kleurt alleen de achtergrond, Spot blijft zichtbaar
+
+  for (let i = -DOEL_R; i < DOEL_R; i += 4) r(doel + i - c, Math.round(hoogte(doel + i + 2)), 4, 2, i / 4 & 1 ? '#ffffff' : '#e0483c');
+  const gd = Math.round(hoogte(doel)), vl = 4 + Math.round(Math.abs(wind) * 5);
+  r(doel - c, gd - 22, 1, 22, '#ffffff'); r(wind < 0 ? doel - vl - c : doel + 1 - c, gd - 22, vl, 5, '#e0483c');   // de vlag wappert met de wind mee
+  r(BAAS - 4 - c, GY - 14, 3, 14, '#2b3a67'); r(BAAS + 1 - c, GY - 14, 3, 14, '#2b3a67');   // baasje
+  r(BAAS - 4 - c, GY - 1, 4, 1, INKT); r(BAAS + 1 - c, GY - 1, 4, 1, INKT);
+  r(BAAS - 5 - c, GY - 29, 10, 16, '#e9c46a'); r(BAAS + 4 - c, GY - 28, 8, 3, '#e9c46a'); r(BAAS + 11 - c, GY - 29, 2, 3, '#f1c9a5');
+  r(BAAS - 4 - c, GY - 38, 8, 9, '#f1c9a5'); r(BAAS - 4 - c, GY - 40, 8, 3, '#5b3a21'); r(BAAS - 5 - c, GY - 39, 2, 5, '#5b3a21'); r(BAAS + 2 - c, GY - 35, 1, 1, INKT);
+  if (afl && afl.soort !== 'fiets') {
+    const ax = Math.round(afl.x - c), ay = Math.round(hoogte(afl.x) - afl.y);
+    if (afl.soort === 'hond') tekenHond(afl.x - c, ay, afl.terug ? 1 : -1, 'loop', afl.fase, PAL_ANDER, {kwispel: afl.fase});
+    else if (afl.soort === 'eekhoorn') ctx.drawImage(EEKHOORN, ax - 4, ay - 7 - (Math.sin(afl.fase) > 0 ? 1 : 0));
+    else { ctx.drawImage(DUIF, ax - 3, ay - 6); if (afl.y > 0) r(ax - 3, ay - 5 - (Math.sin(afl.fase * 2) > 0 ? 3 : 0), 7, 1, '#e8ecf8'); }
+  }
+  const zwemt = ondergrond(spot.x) === 'water';
+  const pose = spot.schud > 0 ? 'schud' : spot.st === 'rust' ? 'lig' : spot.beweegt ? (spot.ren ? 'ren' : 'loop') : spot.st === 'zit' || spot.st === 'blijf' ? 'zit' : 'sta';
+  const sy = hoogte(spot.x) - (spot.beweegt && !zwemt ? sprong(spot.x) : 0);
+  ctx.save();
+  if (zwemt) { ctx.beginPath(); ctx.rect(0, 0, VW, GY + 1); ctx.clip(); }
+  tekenHond(spot.x - c, sy + (zwemt ? 9 : 0), spot.dir, pose, spot.fase, ras.pal, {bal: spot.heeftBal, kwispel: spot.kwispel, buk: spot.st === 'bak' && !spot.beweegt});
+  ctx.restore();
+  if (spot.uit > 0) ballon(Math.round(spot.x - c), Math.round(sy) - 38, UIT);
+  else if (spot.vraag > 0) ballon(Math.round(spot.x - c), Math.round(sy) - 38, VRAAG);
+  if (bal.st !== 'bek') {
+    const bx = bal.st === 'hand' ? HAND.x : bal.x, by = bal.st === 'hand' ? HAND.y : bal.y, g = hoogte(bx);
+    if (by < g - 6) r(Math.round(bx - c) - 2, Math.round(g), 4, 1, 'rgba(0,0,0,.3)');
+    ctx.drawImage(BAL[(Math.floor(bal.hoek / (Math.PI / 4)) % 4 + 4) % 4], Math.round(bx - 2.5 - c), Math.floor(by - 2.5));
+  }
+  for (const d of deeltjes) r(Math.round(d.x - c), Math.round(d.y), 1, 1, d.c);
+  for (const p of popups) tekst(p.s, p.x - c, p.y, p.c);
+  if (bal.st === 'hand' && !foto) {
+    for (let i = 0; i < baan.pts.length; i += 2) r(Math.round(baan.pts[i] - c), Math.round(baan.pts[i + 1]), 1, 1, i & 2 ? INKT : '#ffffff');
+    r(Math.round(baan.landX - c) - 2, Math.round(hoogte(baan.landX)) - 1, 5, 1, '#ffffff');
+    const dx = doel - c, links = dx < 0;
+    if ((links || dx > VW) && (tijd * 3 | 0) & 1) {                           // knipperende pijl naar het doel buiten beeld, met afstand
+      for (let i = 0; i < 6; i++) r(links ? 8 - i : VW - 9 + i, GY - 52 + i, 1, 13 - 2 * i, '#ffffff');
+      for (let i = 0; i < 5; i++) r(links ? 7 - i : VW - 8 + i, GY - 50 + i, 1, 9 - 2 * i, '#e0483c');
+    }
+    if (links || dx > VW) tekst(Math.round(Math.abs(doel - HAND.x) / 16) + 'm', links ? 12 : VW - 13, GY - 62, '#ffffff');
+    r(3, 18, 5, 28, INKT); const h = Math.round(24 * richt.p);                // krachtmeter
+    r(4, 45 - h, 3, h, richt.p < .5 ? '#c4e538' : richt.p < .8 ? '#ffd76a' : '#e0483c');
+    if (sleep && sleep.ver) {                                                 // treklijn van de katapult
+      const n = Math.max(Math.abs(sleep.cx - sleep.sx), Math.abs(sleep.cy - sleep.sy));
+      for (let i = 0; i <= n; i += 2) r(Math.round(sleep.sx + (sleep.cx - sleep.sx) * i / n), Math.round(sleep.sy + (sleep.cy - sleep.sy) * i / n), 1, 1, '#ffffff');
+      r(Math.round(sleep.sx) - 1, Math.round(sleep.sy) - 1, 3, 3, '#e0483c');
+    }
+  }
+  for (let i = Math.round(60 * regen); i--;) r(((druppels[i].x - c) % VW + VW) % VW | 0, druppels[i].y | 0, 1, 3, '#a8d8f0');
+
+  if (foto) {                                                                 // score en meters komen mee op de foto
+    tekst(score, 4 + (String(score).length * 4 - 1) / 2, 4, '#ffffff');
+    Object.keys(stats).forEach((k, i) => {
+      const y = 12 + i * 7, slecht = k === 'honger' || k === 'dorst' ? stats[k] > 75 : stats[k] < 25;
+      ctx.drawImage(ICOON[k], 3, y); r(10, y, 24, 5, INKT); r(11, y + 1, Math.round(stats[k] * .22), 3, slecht ? '#e0483c' : '#c4e538');
+    });
+  }
+  if (foto === 'scan') for (let y = 0; y < VH; y += 2) r(0, y, VW, 1, 'rgba(0,0,0,.35)');
+  else if (PALETTEN[foto]) {
+    const im = ctx.getImageData(0, 0, VW, VH), p = im.data, pal = PALETTEN[foto];
+    for (let i = 0; i < p.length; i += 4) { const k = pal[Math.min(3, (p[i] * 3 + p[i + 1] * 6 + p[i + 2]) / 640 | 0)]; p[i] = k[0]; p[i + 1] = k[1]; p[i + 2] = k[2]; }
+    ctx.putImageData(im, 0, 0);
+  }
+}
+function hud() {
+  for (const k in stats) {
+    const m = $('m-' + k), v = Math.round(stats[k]);
+    m.firstElementChild.style.width = v + '%'; m.setAttribute('aria-valuenow', v);
+    m.classList.toggle('alarm', k === 'honger' || k === 'dorst' ? v > 75 : v < 25);
+  }
+  let som = 0;
+  for (const k in kunde) { som += kunde[k]; $('k-' + k).lastElementChild.style.width = kunde[k] * 100 + '%'; }
+  $('rang').textContent = rang(som / 4);
+  $('reeks').textContent = '×' + Math.min(2, 1 + .1 * reeks).toFixed(1).replace('.', ',');
+  $('score').textContent = score; $('record').textContent = record;
+}
+
+// ---------- scherm en invoer ----------
+function schaal() {
+  const b = Math.max(120, $('veld').clientWidth - 8), dpr = devicePixelRatio || 1;
+  // hele apparaatpixels per spelpixel, zodat het beeld scherp blijft; op smalle schermen wordt het beeld smaller in plaats van kleiner
+  S = Math.max(1, Math.floor(Math.min((innerHeight - 250) / VH, b / 200) * dpr) / dpr);
+  VW = Math.min(320, Math.floor(b / S));
+  cv.width = VW; cv.height = VH;
+  cv.style.width = VW * S + 'px'; cv.style.height = VH * S + 'px';
+  ctx.imageSmoothingEnabled = false;
+}
+const opVeld = e => { const k = cv.getBoundingClientRect(); return [(e.clientX - k.left - 4) / S, (e.clientY - k.top - 4) / S]; };
+cv.addEventListener('pointerdown', e => {
+  wek();
+  if (bal.st !== 'hand' && !foto) return;
+  const [x, y] = opVeld(e);
+  sleep = {sx: x, sy: y, cx: x, cy: y, ver: false, cam0: cam};
+  cv.setPointerCapture(e.pointerId);
+});
+cv.addEventListener('pointermove', e => {
+  if (!sleep) return;
+  [sleep.cx, sleep.cy] = opVeld(e);
+  if (foto) { cam = klem(sleep.cam0 + sleep.sx - sleep.cx, 0, WERELD - VW); return; }   // in fotomodus verschuift slepen het beeld
+  const dx = sleep.sx - sleep.cx, dy = sleep.cy - sleep.sy, len = Math.hypot(dx, dy);
+  if (len < 4) return;
+  sleep.ver = true; richt.p = klem(len / 70, 0, 1); richt.a = klem(Math.atan2(dy, dx), .1, 1.45);
+});
+cv.addEventListener('pointerup', () => { wek(); if (sleep && sleep.ver) werp(); sleep = null; });   // op touch telt pas het loslaten als gebaar voor geluid
+cv.addEventListener('pointercancel', () => { sleep = null; });
+cv.addEventListener('wheel', e => { e.preventDefault(); if (!foto) zetSpin(klem(spin + Math.sign(e.deltaY), -1, 1)); }, {passive: false});
+addEventListener('keydown', e => {
+  if (e.ctrlKey || e.metaKey || e.altKey) return;
+  wek();
+  const k = e.key.toLowerCase();
+  if (e.target.tagName === 'BUTTON' && (k === ' ' || k === 'enter')) return;
+  const pijl = {arrowup: [.05, 0], arrowdown: [-.05, 0], arrowright: [0, .05], arrowleft: [0, -.05]}[k];
+  if (pijl && foto) cam = klem(cam + pijl[1] * 240, 0, WERELD - VW);
+  else if (pijl) { richt.a = klem(richt.a + pijl[0], .1, 1.45); richt.p = klem(richt.p + pijl[1], 0, 1); }
+  else if (k === ' ') werp();
+  else if (TOETS[k]) actie(TOETS[k]);
+  else if (TEST && k === 'r') weerT = 0;        // testmodus: regen aan of uit
+  else if (TEST && k === 'n') dagU = .7;        // nacht
+  else if (TEST && k === 'k') aflT = 0;         // afleiding
+  else return;
+  e.preventDefault();
+});
+$('knoppen').addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return;
+  wek(); actie(b.dataset.a);
+  if (e.detail) b.blur();          // na een muisklik blijft spatie de bal gooien
+});
+$('fotobalk').addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return;
+  if (b.dataset.f) zetFoto(b.dataset.f); else if (b.id === 'f-opslaan') bewaarFoto(); else zetFoto(null);
+});
+addEventListener('resize', schaal);
+addEventListener('pagehide', bewaar);
+document.addEventListener('visibilitychange', () => { if (document.hidden) bewaar(); });
+if (window.claude) {               // in de Artifact-viewer loopt opslaan via de downloads-capability
+  $('f-opslaan').disabled = true;
+  Promise.resolve(window.claude.use && window.claude.use('downloads')).then(d => { downloads = d || null; $('f-opslaan').disabled = !d; }, () => {});
+}
+if (TEST) window.spel = {           // handvatten om in testmodus een situatie klaar te zetten
+  spot, bal, stats, kunde, richt,
+  zet(o) {
+    if ('dagU' in o) dagU = o.dagU;
+    if ('nat' in o) { nat = regen = o.nat; regent = o.nat > 0; weerT = 999; }
+    if ('wind' in o) { wind = windDoel = o.wind; windT = 999; }
+    if ('afl' in o) afl = nieuweAfl(o.afl);
+    if ('doel' in o) doel = o.doel;
+    aflT = 999;
+  },
+};
+
+// ---------- start ----------
+laad(); nieuwDoel(); schaal(); baan = voorspel(); hud(); toonDoelen(); toonGeluid();
+if (TEST) { const fout = zelftest(); document.title = fout ? `TEST FAALT (${fout})` : 'TEST OK'; zeg(document.title); }
+let vorige = performance.now(), rest = 0, hudT = 0, bewaarT = 0;
+function lus(nu) {
+  const dt = Math.min(.1, (nu - vorige) / 1000); vorige = nu;
+  if (!foto) {
+    for (rest += dt; rest >= DT; rest -= DT) stap(DT);
+    if ((hudT += dt) > .2) { hudT = 0; hud(); }
+    if ((bewaarT += dt) > 5) { bewaarT = 0; bewaar(); }
+  }
+  teken();
+  requestAnimationFrame(lus);
+}
+requestAnimationFrame(lus);
+})();
+</script>
